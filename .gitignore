@@ -1,0 +1,5 @@
+env
+.env
+__pycashe__
+./py_scripts/__pycache__
+./sql_scripts/__pycache__
