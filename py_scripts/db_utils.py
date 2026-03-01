@@ -141,7 +141,7 @@ def mv_to_archive(path:str, archive_folder:str) -> None:
     :param archive_folder: каталог для архива
     """
 	f_name = os.path.basename(path)
-	new_path = os.path.join(archive_folder, f_name)# + '.backup')
+	new_path = os.path.join(archive_folder, f_name + '.backup')
 	os.renames(path, new_path)
 
 
