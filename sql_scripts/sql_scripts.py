@@ -144,7 +144,7 @@ def sql_magic(conn):
         WHERE (passport_valid_to IS NOT NULL AND passport_valid_to <= transaction_date::timestamp::date) 
             OR bl.passport IS NOT null;
 
-        --разбор кейса "закончился договор": создаем если нет
+        --разбор кейса "закончился договор": создаем если нет таблицу
         CREATE TABLE IF NOT EXISTS "STG_smth_expired"(
             event_dt timestamp,
             passport varchar,
@@ -154,7 +154,7 @@ def sql_magic(conn):
             report_dt timestamp
         );
 
-        --собираем во временную, что отловили из текущего стейджа
+        --собираем туда, что отловили из текущего стейджа
         INSERT INTO "STG_smth_expired" (
             event_dt,
             passport,
@@ -196,7 +196,8 @@ def sql_magic(conn):
                 prev_city, 
                 time_diff, 
                 prev_time, 
-                trans_time) 
+                trans_time
+        ) 
         WITH total_transactions AS (
         -- Собираем данные о транзакциях по городам
             SELECT 
@@ -224,7 +225,7 @@ def sql_magic(conn):
                 LAG(trans_time) OVER w as prev_time,
                 (trans_time - LAG(trans_time) OVER w) AS time_diff 
             FROM total_transactions
-            WINDOW w AS (PARTITION BY client_id ORDER BY trans_time)
+            WINDOW w AS (PARTITION BY client_id ORDER BY trans_time) --именнованное окно!
                 ) sub
         -- проверяем, где жулики наследили
             WHERE prev_city IS NOT NULL --отсеиваем крайние, где предыдущий город не существует
@@ -282,7 +283,7 @@ def sql_magic(conn):
         --на свой страх и риск добавил условие, что это только на снятие или перевод, 
         --в условии задачи любые 3 отклоненные + следующая успешная с уменьшением сумм
             where oper_type in ('WITHDRAW', 'PAYMENT')
-        --а вот и это именнованное окно, здесь группировка по номеру карты, т.к. операции по разным картам 
+        --именнованное окно, здесь группировка по номеру карты, т.к. операции по разным картам 
         --вряд ли можно считать подбором 
             WINDOW w AS (PARTITION BY card_num ORDER BY transaction_date::timestamp) ) sub
         --выборка строк с данными по условиям детекции целевых транзакций, 
