@@ -24,9 +24,11 @@ def main():
         user=os.getenv("DATABASE_USER"),
         password=os.getenv("DATABASE_PASSWORD")
         )
-
+# список паттернов для данных, которые получаем
     files_LIST = ['transactions', 'passport_blacklist', 'terminals']
+# каталог файлов получемой выгрузки для анализа 
     folder = 'data'
+#каталог для обработанных файлов
     archive_folder = 'data/archive'
 
     process_by_day(files_LIST, folder, archive_folder, dsn, conn)

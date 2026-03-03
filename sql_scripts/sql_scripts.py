@@ -2,8 +2,8 @@
 def sql_magic(conn):
     """
     Docstring для sql_magic
-    Все скрипты в одной функции, не стал разбивать на блоки, раз и так "пашет". 
-    а нам и надо чтобы сразу все скрипты отработали
+    Все скрипты в одной функции, без разбивки на блоки, 
+    т.к. нам и надо чтобы сразу все скрипты отработали
    
     :param conn: даем коннект к базе
     """
@@ -22,7 +22,7 @@ def sql_magic(conn):
             report_dt timestamp
         );
                    
-        --создаем                        
+        --создаем таблицу для стоп-листа паспортов                       
         CREATE TABLE IF NOT EXISTS "DWH_FACT_passport_blacklist"(
 	        entry_dt date, 
             passport_num varchar UNIQUE, 
@@ -50,7 +50,9 @@ def sql_magic(conn):
             entry_dt = excluded.entry_dt,
             update_dt = current_timestamp;                    
 
-        --создаем таблицу для хранения транзакций
+        --создаем таблицу для хранения транзакций, делаю накоплением,
+        --но вижу, что через 3 дня уже более 7Мб, наверное, нужно затирать,
+        --из задания не понятно 
         CREATE TABLE IF NOT EXISTS "DWH_FACT_transactions"(
             trans_id varchar ,
             trans_date timestamp, 
@@ -116,7 +118,8 @@ def sql_magic(conn):
             report_dt timestamp
         );
 
-        --сохраняем в "промежуток" улов (операции вне периода действия паспорта или с паспортом из стоп листа)
+        --сохраняем в "промежуток" улов (операции вне периода действия паспорта или 
+        --с паспортом из стоп листа)
         INSERT INTO "STG_passport_errors"(
             event_dt,
             passport,
@@ -225,8 +228,8 @@ def sql_magic(conn):
                 ) sub
         -- проверяем, где жулики наследили
             WHERE prev_city IS NOT NULL --отсеиваем крайние, где предыдущий город не существует
-                AND terminal_city <> prev_city --оно в случае если следущее условие тру
-                AND time_diff < INTERVAL '1 hour'; -- если дошли и до этого условия, то точно "оно"
+                AND terminal_city <> prev_city --смотрим разные города
+                AND time_diff < INTERVAL '1 hour'; -- интервал меньше часа
 
         --попытки подбора сумм
         --создаем временную таблицу
@@ -276,9 +279,13 @@ def sql_magic(conn):
                     lag(CAST(REPLACE(amount,',', '.') AS decimal(10,2)), 3) OVER w AS lag3_am,
                     lag(transaction_date::timestamp, 3) OVER w AS lag3_dt
             FROM "STG_transactions"
-        --а вот и окно
+        --на свой страх и риск добавил условие, что это только на снятие или перевод, 
+        --в условии задачи любые 3 отклоненные + следующая успешная с уменьшением сумм
+            where oper_type in ('WITHDRAW', 'PAYMENT')
+        --а вот и это именнованное окно, здесь группировка по номеру карты, т.к. операции по разным картам 
+        --вряд ли можно считать подбором 
             WINDOW w AS (PARTITION BY card_num ORDER BY transaction_date::timestamp) ) sub
-        --выборка строк с данными по условиям детекции целевых транзакций
+        --выборка строк с данными по условиям детекции целевых транзакций, 
         WHERE 	oper_result = 'SUCCESS' 
             AND lag1 = 'REJECT' 
             AND lag2 = 'REJECT' 
@@ -288,7 +295,7 @@ def sql_magic(conn):
             AND lag2_am < lag3_am 
             AND trans_time - lag3_dt <= INTERVAL '20 minutes';
                    
-        --грузим из временных таблиц в отчет хотя можно было и сразу
+        --грузим из временных таблиц в отчет ошибки папортов и просроченный договор
         INSERT INTO "REP_FRAUD" (
             event_dt,
             passport,
@@ -301,7 +308,7 @@ def sql_magic(conn):
         UNION 
         SELECT * FROM "STG_smth_expired";
 
-        -- грузим в отчет что нужно из временной + join-им недостающие поля 
+        -- грузим в отчет что нужно из временной таблицы + join-им недостающие поля 
         -- где разные города
         INSERT INTO "REP_FRAUD" (
             event_dt,
@@ -322,7 +329,7 @@ def sql_magic(conn):
                             INNER JOIN clients cl ON a.client = cl.client_id
                             INNER JOIN "STG_different_cities_fraud" z ON t.transaction_id::text = z.transaction_id;
 
-        --добавляем данные в общий лог по заданной структуре по брутфорсу сумм
+        --добавляем данные в отчет по заданной структуре по подбору сумм
         INSERT INTO "REP_FRAUD" (
             event_dt,
             passport,
@@ -344,7 +351,7 @@ def sql_magic(conn):
                             INNER JOIN "STG_amount_bruteforce" z ON t.transaction_id::text = z.transaction_id;
                    
         --создаем таблицу с историей по стоп-листу паспортов
-        --сделал в формате scd2, так как scd1 в том формате, как в задании
+        --сделал в формате scd2, так как scd1 в том формате, как в задании,
         --не учитывает возможное удаление паспорта из стоп-листа 
         CREATE TABLE IF NOT EXISTS "DWH_DIM_passport_blacklist_hist"(
 	        entry_dt date, 
@@ -378,14 +385,14 @@ def sql_magic(conn):
         --данные за несколько дней
 	        spb.date,             
 	        '5999-12-31 23:59:59'::timestamp, -- тех. бесконечность
-	        '0'                            -- Флаг актуальности
+	        '0'                               -- Флаг deleted_flg
         FROM "STG_passport_blacklist" spb
         LEFT JOIN "DWH_DIM_passport_blacklist_hist" dbl 
         ON spb.passport = dbl.passport 
 	    AND dbl.deleted_flg = '0'
-        WHERE dbl.passport IS NULL;        -- Только если записи еще нет
+        WHERE dbl.passport IS NULL;           -- Только если записи еще нет
 
-        --создаем таблицу истории по терминалам
+        --создаем таблицу истории по терминалам для scd2
         CREATE TABLE IF NOT EXISTS "DWH_DIM_terminals_hist"(
 	        terminal_id varchar ,
 	        terminal_type varchar, 
@@ -396,7 +403,7 @@ def sql_magic(conn):
 	        deleted_flg int
         );
 
-        --помечаем удаленные
+        --помечаем удаленные - отсутствующие в новом файле
         UPDATE "DWH_DIM_terminals_hist"
         SET 
 	        effective_to = current_timestamp - INTERVAL '1 second',
@@ -419,7 +426,8 @@ def sql_magic(conn):
             st.terminal_address IS DISTINCT FROM dwh.terminal_address
         );
 
-        --добавляем строки совсем новые или те, которые появляются после "удаления", в т.ч. при обновлении
+        --добавляем строки совсем новые или те, которые появляются снова после "удаления", 
+        --в т.ч. при обновлении
         INSERT INTO "DWH_DIM_terminals_hist"(
 	        terminal_id ,
 	        terminal_type , 
