@@ -29,7 +29,7 @@ def main():
 # каталог файлов получемой выгрузки для анализа 
     folder = 'data'
 #каталог для обработанных файлов
-    archive_folder = 'data/archive'
+    archive_folder = 'archive'
 
     process_by_day(files_LIST, folder, archive_folder, dsn, conn)
 
